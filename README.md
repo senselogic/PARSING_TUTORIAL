@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Shows how to implement a recursive descent parser which converts a JavaScript subset to pseudo-code.
+Shows how to translate a JavaScript language subset to pseudo-code instructions, using a recursive descent parser.
 
 ## Example
 
