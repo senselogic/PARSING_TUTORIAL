@@ -1,0 +1,1284 @@
+<!--
+    This file is part of the ParsingTutorial distribution.
+
+    https://github.com/senselogic/PARSING_TUTORIAL
+
+    Copyright (C) 2017 Eric Pelzer (ecstatic.coder@gmail.com)
+
+    ParsingTutorial is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, version 3.
+
+    ParsingTutorial is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+-->
+<meta charset="utf-8">
+<table>
+    <tbody>
+        <tr>
+            <td>
+                <textarea id="SourceCode" style="width:640px;height:800px"></textarea>
+            </td>
+            <td>
+                <textarea id="TargetCode" style="width:640px;height:800px"></textarea>
+            </td>
+        </tr>
+        <tr>
+            <td>
+                <button onclick="Compile()">Compile</button>
+            </td>
+        </tr>
+    </tbody>
+</table>
+<script>
+    // .. CONSTANTS
+
+    var TOKEN_TYPE_None = 0;
+    var TOKEN_TYPE_ShortComment = 1;
+    var TOKEN_TYPE_LongComment = 2;
+    var TOKEN_TYPE_CharacterLiteral = 3;
+    var TOKEN_TYPE_StringLiteral = 4;
+    var TOKEN_TYPE_DecimalLiteral = 5;
+    var TOKEN_TYPE_Identifier = 6;
+    var TOKEN_TYPE_Operator = 7;
+    var TOKEN_TYPE_Separator = 8;
+
+    // .. CLASSES
+
+    function TOKEN( text, token_type, line_index )
+    {
+        if ( text == undefined )
+        {
+            this.Text = "";
+        }
+        else
+        {
+            this.Text = text;
+        }
+        
+        this.Type = token_type;
+        this.LineIndex = line_index;
+    }
+
+    // ~~
+
+    function CODE( text )
+    {
+        if ( text == undefined )
+        {
+            this.Text = "";
+        }
+        else
+        {
+            this.Text = text;
+        }
+        
+        this.AddText = function( text )
+        {
+            if ( this.Text != "" )
+            {
+                this.Text += " ";
+            }
+
+            this.Text += text;
+        }
+    }
+
+    // .. VARIABLES
+
+    var
+        LineIndex,
+        TokenTable,
+        Token,
+        TokenType,
+        TokenCount,
+        TokenIndex;
+
+    // .. FUNCTIONS
+
+    function Print( text )
+    {
+        document.write( text.split( "\n" ).join( "<br/>" ) );
+    }
+
+    // ~~
+
+    function PrintTokenTable()
+    {
+        for ( var token_index = 0;
+              token_index < TokenTable.length;
+              ++token_index )
+        {
+            var token = TokenTable[ token_index ];
+            Print( "[" + token.LineIndex + "] " + token_index + " (" + token.Type + ") " + token.Text + "\n" );
+        }
+    }
+    
+    // ~~
+    
+    function GetIndentedText( text )
+    {
+        var indented_text = "    " + text.split( "\n" ).join( "\n    " );
+        
+        if ( text.charAt( text.length - 1 ) == "\n" )
+        {
+            return indented_text.substring( 0, indented_text.length - 4 );
+        }
+        else
+        {
+            return indented_text;
+        }
+    }
+    
+    // ~~
+
+    function AddToken()
+    {
+        Token = new TOKEN( "", TokenType, LineIndex );
+        TokenTable.push( Token );
+    }
+
+    // ~~
+
+    function BeginToken( token_type )
+    {
+        Token = undefined;
+        TokenType = token_type;
+    }
+
+    // ~~
+
+    function AddTokenCharacter( token_character )
+    {
+        if ( Token == undefined )
+        {
+            AddToken();
+        }
+
+        Token.Text += token_character;
+    }
+
+    // ~~
+
+    function EndToken()
+    {
+        Token = undefined;
+        TokenType = TOKEN_TYPE_None;
+    }
+
+    // ~~
+
+    function MakeTokenTable( code )
+    {
+        LineIndex = 1;
+        TokenTable = [];
+        EndToken();
+
+        var new_line_character_index = -1;
+        var character_count = code.length;
+
+        for ( var character_index = 0;
+              character_index < character_count;
+              ++character_index )
+        {
+            var character = code.charAt( character_index );
+            var next_character = ( character_index + 1 < character_count ) ? code.charAt( character_index + 1 ) : 0;
+
+            if ( TokenType == TOKEN_TYPE_ShortComment )
+            {
+                if ( character == "\n" )
+                {
+                    EndToken();
+                }
+            }
+            else if ( TokenType == TOKEN_TYPE_LongComment )
+            {
+                if ( character == "*"
+                     && next_character == "/" )
+                {
+                    EndToken();
+                    ++character_index;
+                }
+            }
+            else
+            {
+                var it_is_identifier_character
+                    = ( ( character >= "a" && character <= "z" )
+                        || ( character >= "A" && character <= "Z" )
+                        || character == "_"
+                        || character == "$" );
+
+                var it_is_decimal_character
+                    = ( character >= "0" && character <= "9" );
+
+                var it_is_operator_character
+                    = ( character == "+"
+                        || character == "-"
+                        || character == "*"
+                        || character == "/"
+                        || character == "<"
+                        || character == ">"
+                        || character == "="
+                        || character == "!"
+                        || character == "?"
+                        || character == "^"
+                        || character == "&"
+                        || character == "|" );
+
+                if ( TokenType == TOKEN_TYPE_CharacterLiteral )
+                {
+                    AddTokenCharacter( character );
+
+                    if ( character == "\\" )
+                    {
+                        AddTokenCharacter( next_character );
+                        ++character_index;
+                    }
+                    else if ( character == "'" )
+                    {
+                        EndToken();
+                    }
+                }
+                else if ( TokenType == TOKEN_TYPE_StringLiteral )
+                {
+                    AddTokenCharacter( character );
+
+                    if ( character == "\\" )
+                    {
+                        AddTokenCharacter( next_character );
+                        ++character_index;
+                    }
+                    else if ( character == "\"" )
+                    {
+                        EndToken();
+                    }
+                }
+                else if ( TokenType == TOKEN_TYPE_DecimalLiteral )
+                {
+                    if ( it_is_decimal_character
+                         || ( character == "." && TokenTable[ TokenTable.length - 1 ].Text.indexOf( "." ) < 0 ) )
+                    {
+                        AddTokenCharacter( character );
+                    }
+                    else
+                    {
+                        EndToken();
+                        --character_index;
+                    }
+                }
+                else if ( TokenType == TOKEN_TYPE_Identifier )
+                {
+                    if ( it_is_identifier_character
+                         || it_is_decimal_character )
+                    {
+                        AddTokenCharacter( character );
+                    }
+                    else
+                    {
+                        EndToken();
+                        --character_index;
+                    }
+                }
+                else if ( TokenType == TOKEN_TYPE_Operator )
+                {
+                    if ( it_is_operator_character )
+                    {
+                        AddTokenCharacter( character );
+                    }
+                    else
+                    {
+                        EndToken();
+                        --character_index;
+                    }
+                }
+                else if ( character == "/"
+                          && next_character == "/" )
+                {
+                    BeginToken( TOKEN_TYPE_ShortComment );
+                    ++character_index;
+                }
+                else if ( character == "/"
+                          && next_character == "*" )
+                {
+                    BeginToken( TOKEN_TYPE_LongComment );
+                    ++character_index;
+                }
+                else if ( character == "'" )
+                {
+                    BeginToken( TOKEN_TYPE_CharacterLiteral );
+                    AddTokenCharacter( character );
+                }
+                else if ( character == "\"" )
+                {
+                    BeginToken( TOKEN_TYPE_StringLiteral );
+                    AddTokenCharacter( character );
+                }
+                else if ( it_is_identifier_character )
+                {
+                    BeginToken( TOKEN_TYPE_Identifier );
+                    AddTokenCharacter( character );
+                }
+                else if ( it_is_decimal_character )
+                {
+                    BeginToken( TOKEN_TYPE_DecimalLiteral );
+                    AddTokenCharacter( character );
+                }
+                else if ( it_is_operator_character )
+                {
+                    if ( character == "-"
+                         && next_character >= "0"
+                         && next_character <= "9" )
+                    {
+                        BeginToken( TOKEN_TYPE_DecimalLiteral );
+                    }
+                    else
+                    {
+                        BeginToken( TOKEN_TYPE_Operator );
+                    }
+
+                    AddTokenCharacter( character );
+                }
+                else if ( character == " "
+                          || character == "\t"
+                          || character == "\r"
+                          || character == "\n" )
+                {
+                    EndToken();
+                }
+                else
+                {
+                    BeginToken( TOKEN_TYPE_Separator );
+                    AddTokenCharacter( character );
+                    EndToken();
+                }
+            }
+
+            if ( character == "\n" 
+                 && character_index > new_line_character_index )
+            {
+                ++LineIndex;
+                new_line_character_index = character_index;
+            }
+        }
+
+        TokenCount = TokenTable.length;
+    }
+    
+    // ~~
+    
+    function PrintError()
+    {
+        var token = TokenTable[ TokenIndex ];
+        
+        Print( "*** Error at line " + token.LineIndex + " : " + token.Text + " ***\n" );
+    }
+    
+    // ~~
+    
+    function HasToken()
+    {
+        return TokenIndex < TokenCount;
+    }
+
+    // ~~
+
+    function Fail( token_index )
+    {
+        TokenIndex = token_index;
+
+        return false;
+    }
+
+   // ~~
+    
+    function PeekTokenText( token_text )
+    {
+        return ( 
+            TokenIndex < TokenCount
+            && TokenTable[ TokenIndex ].Text == token_text 
+            );
+    }
+
+    // ~~
+    
+    function PeekTokenType( token_type )
+    {
+        return ( 
+            TokenIndex < TokenCount
+            && TokenTable[ TokenIndex ].Type == token_type
+            );
+    }
+
+    // ~~
+
+    function ParseToken( code, it_is_additive )
+    {
+        if ( it_is_additive != true
+             && code != undefined )
+        {
+            code.Text = "";
+        }
+
+        if ( TokenIndex < TokenCount )
+        {
+            if ( code != undefined )
+            {
+                code.AddText( TokenTable[ TokenIndex ].Text );
+            }
+
+            ++TokenIndex;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    // ~~
+
+    function ParseTokenText( token_text, code, it_is_additive )
+    {
+        if ( it_is_additive != true
+             && code != undefined )
+        {
+            code.Text = "";
+        }
+
+        if ( TokenIndex < TokenCount
+             && TokenTable[ TokenIndex ].Text == token_text )
+        {
+            if ( code != undefined )
+            {
+                code.AddText( TokenTable[ TokenIndex ].Text );
+            }
+
+            ++TokenIndex;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    // ~~
+
+    function ParseTokenType( token_type, code, it_is_additive )
+    {
+        if ( it_is_additive != true
+             && code != undefined )
+        {
+            code.Text = "";
+        }
+
+        if ( TokenIndex < TokenCount
+             && TokenTable[ TokenIndex ].Type == token_type )
+        {
+            if ( code != undefined )
+            {
+                code.AddText( TokenTable[ TokenIndex ].Text );
+            }
+
+            ++TokenIndex;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    // ~~
+    
+    function ParseIdentifier( identifier_code, it_is_additive )
+    {
+        return ParseTokenType( TOKEN_TYPE_Identifier, identifier_code, it_is_additive )
+    }
+    
+    // ~~
+
+    function ParseExpression( expression_code, terminator_text, it_is_additive )
+    {
+        var token_index = TokenIndex;
+        
+        if ( it_is_additive != true )
+        {
+            expression_code.Text = "";
+        }
+
+        while ( !PeekTokenText( ";" )
+                && ( terminator_text == undefined || !PeekTokenText( terminator_text ) )
+                && ( ( ParseTokenText( "(", expression_code, true )
+                       && ParseExpression( expression_code, ")", true )
+                       && ParseTokenText( ")", expression_code, true ) )
+                     || ( ParseTokenText( "[", expression_code, true )
+                          && ParseExpression( expression_code, "]", true )
+                          && ParseTokenText( "]", expression_code, true ) )
+                     || ( ParseTokenText( "{", expression_code, true )
+                          && ParseExpression( expression_code, "}", true )
+                          && ParseTokenText( "}", expression_code, true ) )
+                     || ParseToken( expression_code, true ) ) );
+        
+        return ( TokenIndex > token_index ) || Fail( token_index );
+    }
+    
+    // ~~
+
+    function ParseFunctionDeclarationStatement( function_declaration_statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+        
+        if ( PeekTokenText( "function" ) )
+        {
+            ParseToken();
+            function_declaration_statement_code.Text = "";
+
+            var function_name_code = new CODE();
+            var expression_code = new CODE();
+            var statements_code = new CODE();
+            
+            if ( ParseIdentifier( function_name_code )
+                 && ParseTokenText( "(" )
+                 && ParseExpression( expression_code, ")" )
+                 && ParseTokenText( ")" )
+                 && ParseTokenText( "{" )
+                 && ParseStatements( statements_code )
+                 && ParseTokenText( "}" ) )
+            {
+                function_declaration_statement_code.Text = "Create the function : " + function_name_code.Text + "\n";
+                
+                if ( expression_code.Text != "" )
+                {
+                    function_declaration_statement_code.Text += "With the parameters : " + expression_code.Text + "\n";
+                }
+                
+                function_declaration_statement_code.Text += "\n" + GetIndentedText( statements_code.Text ) + "\n";
+                
+                return true;
+            }
+        }
+
+        return Fail( token_index );
+    }
+
+    // ~~
+
+    function ParseIfStatement( if_statement_code )
+    {
+        var token_index = TokenIndex;
+
+        if ( PeekTokenText( "if" ) )
+        {
+            ParseToken();
+            if_statement_code.Text = "";
+            
+            var expression_code = new CODE();
+            var statements_code = new CODE();
+        
+            if ( ParseTokenText( "(" )
+                 && ParseExpression( expression_code, ")" )
+                 && ParseTokenText( ")" )
+                 && ParseTokenText( "{" )
+                 && ParseStatements( statements_code )
+                 && ParseTokenText( "}" ) )
+            {
+                if_statement_code.Text = "If : " + expression_code.Text + "\n\n";
+                if_statement_code.Text += GetIndentedText( statements_code.Text ) + "\n";
+                
+                while ( ParseTokenText( "else" ) )
+                {
+                    if ( ParseTokenText( "if" ) )
+                    {
+                        if ( ParseTokenText( "(" )
+                             && ParseExpression( expression_code, ")" )
+                             && ParseTokenText( ")" )
+                             && ParseTokenText( "{" )
+                             && ParseStatements( statements_code )
+                             && ParseTokenText( "}" ) )
+                        {
+                            if_statement_code.Text += "Else if : " + expression_code.Text + "\n\n";
+                            if_statement_code.Text += GetIndentedText( statements_code.Text ) + "\n";
+                        }
+                        else
+                        {
+                            return Fail( token_index );
+                        }
+                    }
+                    else
+                    {
+                        if ( ParseTokenText( "{" )
+                             && ParseStatements( statements_code )
+                             && ParseTokenText( "}" ) )
+                        {
+                            if_statement_code.Text += "Else :\n\n";
+                            if_statement_code.Text += GetIndentedText( statements_code.Text ) + "\n";
+                        }
+                        else
+                        {
+                            return Fail( token_index );
+                        }
+                    }
+                }
+                
+                return true;
+            }
+        }
+        
+        return Fail( token_index );
+    }
+
+    // ~~
+
+    function ParseWhileStatement( while_statement_code )
+    {
+        var token_index = TokenIndex;
+        
+        if ( PeekTokenText( "while" ) )
+        {
+            ParseToken();
+            while_statement_code.Text = "";
+
+            var expression_code = new CODE();
+            var statements_code = new CODE();
+            
+            if ( ParseTokenText( "(" )
+                 && ParseExpression( expression_code, ")" )
+                 && ParseTokenText( ")" )
+                 && ParseTokenText( "{" )
+                 && ParseStatements( statements_code )
+                 && ParseTokenText( "}" ) )
+            {
+                while_statement_code.Text = "While : " + expression_code.Text + "\n\n";
+                while_statement_code.Text += GetIndentedText( statements_code.Text ) + "\n";
+                
+                return true;
+            }
+        }
+        
+        return Fail( token_index );
+    }
+
+    // ~~
+
+    function ParseDoStatement( do_statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+        
+        if ( PeekTokenText( "do" ) )
+        {
+            ParseToken();
+            do_statement_code.Text = "";
+
+            var statements_code = new CODE();
+            var expression_code = new CODE();
+            
+            if ( ParseTokenText( "{" )
+                 && ParseStatements( statements_code )
+                 && ParseTokenText( "}" )
+                 && ParseTokenText( "while" )
+                 && ParseTokenText( "(" )
+                 && ParseExpression( expression_code, ")" )
+                 && ParseTokenText( ")" )
+                 && ParseTokenText( terminator_text ) ) 
+            {
+                do_statement_code.Text = "Repeat :\n\n";
+                do_statement_code.Text += GetIndentedText( statements_code.Text ) + "\n";
+                do_statement_code.Text += "While : " + expression_code.Text + "\n\n";
+                
+                return true;
+            }
+        }
+        
+        return Fail( token_index );
+    }
+
+    // ~~
+
+    function ParseForStatement( for_statement_code )
+    {
+        var token_index = TokenIndex;
+        
+        if ( PeekTokenText( "for" ) )
+        {
+            ParseToken();
+            for_statement_code.Text = "";
+
+            var initialization_variable_name_code = new CODE();
+            var initialization_expression_code = new CODE();
+            var initialization_code = new CODE();
+            var condition_expression_code = new CODE();
+            var iteration_variable_name_code = new CODE();
+            var initialization_statement_code = new CODE();
+            var iteration_statement_code = new CODE();
+            var statements_code = new CODE();
+            
+            if ( ParseTokenText( "(" )
+                 && ( ParseTokenText( "var" ) || true )
+                 && ParseIdentifier( initialization_variable_name_code )
+                 && ParseTokenText( "=" )
+                 && ParseExpression( initialization_expression_code, ";" )
+                 && ParseTokenText( ";" )
+                 && ParseExpression( condition_expression_code, ";" )
+                 && ParseTokenText( ";" )
+                 && ( ( ParseTokenText( "++" ) && ParseIdentifier( iteration_variable_name_code ) )
+                      || ( ParseIdentifier( iteration_variable_name_code ) && ParseTokenText( "++" ) ) )
+                 && iteration_variable_name_code.Text == initialization_variable_name_code.Text
+                 && ParseTokenText( ")" )
+                 && ParseTokenText( "{" )
+                 && ParseStatements( statements_code )
+                 && ParseTokenText( "}" ) )
+            {
+                for_statement_code.Text = "For each : " + initialization_variable_name_code.Text + "\n";
+                for_statement_code.Text += "From : " + initialization_expression_code.Text + "\n";
+                for_statement_code.Text += "While : " + condition_expression_code.Text + "\n\n";
+                for_statement_code.Text += GetIndentedText( statements_code.Text ) + "\n";
+                
+                return true;
+            }
+            else if ( !Fail( token_index + 1 )
+                      && ParseTokenText( "(" )
+                      && ParseStatement( initialization_statement_code, ";" )
+                      && ParseTokenText( ";" )
+                      && ParseExpression( condition_expression_code, ";" )
+                      && ParseTokenText( ";" )
+                      && ParseStatement( iteration_statement_code, ")" )
+                      && ParseTokenText( ")" )
+                      && ParseTokenText( "{" )
+                      && ParseStatements( statements_code )
+                      && ParseTokenText( "}" ) )
+            {
+                for_statement_code.Text = initialization_statement_code.Text + "\n";
+                for_statement_code.Text += "While : " + condition_expression_code.Text + "\n\n";
+                for_statement_code.Text += GetIndentedText( statements_code.Text );
+                for_statement_code.Text += GetIndentedText( iteration_statement_code.Text ) + "\n";
+                
+                return true;
+            }
+        }
+        
+        return Fail( token_index );
+    }
+
+    // ~~
+
+    function ParseBreakStatement( break_statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+        
+        if ( PeekTokenText( "break" ) )
+        {
+            ParseToken();        
+            break_statement_code.Text = "";
+
+            if ( ParseTokenText( terminator_text ) )
+            {
+                break_statement_code.Text = "Exit the loop\n\n";
+                
+                return true;
+            }
+        }
+
+        return Fail( token_index );    
+    }
+
+    // ~~
+
+    function ParseContinueStatement( continue_statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+        
+        if ( PeekTokenText( "continue" ) )
+        {
+            ParseToken();
+            continue_statement_code.Text = "";
+
+            if ( ParseTokenText( terminator_text ) )
+            {
+                continue_statement_code.Text = "Repeat the loop\n\n";
+                
+                return true;
+            }
+        }
+        
+        return Fail( token_index );    
+    }
+
+    // ~~
+
+    function ParseVariableIncrementationStatement( variable_incrementation_statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+        var variable_name_code = new CODE();
+        
+        variable_incrementation_statement_code.Text = "";
+
+        if ( ( ( ParseIdentifier( variable_name_code ) 
+                 && ParseTokenText( "++" ) )
+               || ( ParseTokenText( "++" ) 
+                    && ParseIdentifier( variable_name_code ) ) )
+             && ParseTokenText( terminator_text ) )
+        {
+            variable_incrementation_statement_code.Text = "Increment the variable : " + variable_name_code.Text + "\n\n";
+            
+            return true;
+        }
+
+        return Fail( token_index );
+    }
+
+    // ~~
+
+    function ParseVariableDecrementationStatement( variable_decrementation_statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+        var variable_name_code = new CODE();
+        
+        variable_decrementation_statement_code.Text = "";
+
+        if ( ( ( ParseIdentifier( variable_name_code ) 
+                 && ParseTokenText( "--" ) )
+               || ( ParseTokenText( "--" ) 
+                    && ParseIdentifier( variable_name_code ) ) )
+             && ParseTokenText( terminator_text ) )
+        {
+            variable_decrementation_statement_code.Text = "Decrement the variable : " + variable_name_code.Text + "\n\n";
+            
+            return true;
+        }
+
+        return Fail( token_index );
+    }
+
+    // ~~
+    
+    function ParseAssignmentOperator( assignment_operator_code, it_is_additive )
+    {
+        var token_index = TokenIndex;
+
+        if ( it_is_additive != true )
+        {
+            assignment_operator_code.Text = "";
+        }
+        
+        if ( ParseTokenType( TOKEN_TYPE_Operator, assignment_operator_code, it_is_additive ) )
+        {
+            if ( assignment_operator_code.Text == "=" )
+            {
+                assignment_operator_code.Text = "Put";
+                
+                return true;
+            }
+            else if ( assignment_operator_code.Text == "+=" )
+            {
+                assignment_operator_code.Text = "Add";
+                
+                return true;
+            }
+            else if ( assignment_operator_code.Text == "-=" )
+            {
+                assignment_operator_code.Text = "Substract";
+                
+                return true;
+            }
+            else if ( assignment_operator_code.Text == "*=" )
+            {
+                assignment_operator_code.Text = "Multiply by";
+                
+                return true;
+            }
+            else if ( assignment_operator_code.Text == "/=" )
+            {
+                assignment_operator_code.Text = "Divide by";
+                
+                return true;
+            }
+        }
+        
+        return Fail( token_index );
+    }
+
+    // ~~
+
+    function ParseVariableAssignmentStatement( variable_assignment_statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+        var variable_name_code = new CODE();
+        var assignment_operator_code = new CODE();
+        var expression_code = new CODE();
+        
+        variable_assignment_statement_code.Text = "";
+
+        ParseTokenText( "var" );
+
+        while ( ParseIdentifier( variable_name_code ) )
+        {
+            if ( ParseAssignmentOperator( assignment_operator_code )
+                 && ParseExpression( expression_code, "," ) )
+            {
+                
+                if ( expression_code.Text.substring( 0, 19 ) == "window . confirm ( " )
+                {
+                    var message = expression_code.Text.substring( 19, expression_code.Text.length - 2 );
+                    
+                    variable_assignment_statement_code.Text += "Ask the user to confirm : " + message + "\n";
+                    variable_assignment_statement_code.Text += assignment_operator_code.Text + " the answer into the variable : " + variable_name_code.Text + "\n\n";
+                }
+                else if ( expression_code.Text.substring( 0, 18 ) == "window . prompt ( " )
+                {
+                    var message = expression_code.Text.substring( 18, expression_code.Text.length - 2 );
+                    
+                    variable_assignment_statement_code.Text += "Ask the user : " + message + "\n";
+                    variable_assignment_statement_code.Text += assignment_operator_code.Text + " the answer into the variable : " + variable_name_code.Text + "\n\n";
+                }
+                else 
+                {
+                    if ( expression_code.Text == "new Array ( )" 
+                         || expression_code.Text == "[ ]" )
+                    {
+                        variable_assignment_statement_code.Text += assignment_operator_code.Text + " an empty array\n";
+                    }
+                    else if ( expression_code.Text.substring( 0, 12 ) == "new Array ( " )
+                    {
+                        var array = expression_code.Text.substring( 12, expression_code.Text.length - 2 );
+                        
+                        variable_assignment_statement_code.Text += assignment_operator_code.Text + " the array : " + array + "\n";
+                    }
+                    else if ( expression_code.Text.substring( 0, 2 ) == "[ " )
+                    {
+                        var array = expression_code.Text.substring( 2, expression_code.Text.length - 2 );
+                        variable_assignment_statement_code.Text += assignment_operator_code.Text + " the array : " + array + "\n";
+                    }
+                    else
+                    {
+                        variable_assignment_statement_code.Text += assignment_operator_code.Text + " : " + expression_code.Text + "\n";
+                    }
+                    
+                    variable_assignment_statement_code.Text += "Into the variable : " + variable_name_code.Text + "\n\n";
+                }
+            }
+            else
+            {
+                variable_assignment_statement_code.Text += "Create the variable : " + variable_name_code.Text + "\n\n";
+            }
+            
+            ParseTokenText( "," );
+            
+            if ( ParseTokenText( terminator_text ) )
+            {
+                return true;
+            }
+        }
+
+        return Fail( token_index );
+    }
+ 
+    // ~~
+
+    function ParsePropertyAssignmentStatement( property_assignment_statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+        var variable_name_code = new CODE();
+        var property_name_code = new CODE();
+        var assignment_operator_code = new CODE();
+        var expression_code = new CODE();
+        
+        property_assignment_statement_code.Text = "";
+
+        if ( ParseIdentifier( variable_name_code )
+             && ParseTokenText( "." )
+             && ParseIdentifier( property_name_code )
+             && ParseAssignmentOperator( assignment_operator_code )
+             && ParseExpression( expression_code )
+             && ParseTokenText( terminator_text ) )
+        {
+            variable_assignment_statement_code.Text += assignment_operator_code.Text + " : " + expression_code.Text + "\n";
+            variable_assignment_statement_code.Text = "Into the property : " + property_name_code.Text + "\n";
+            variable_assignment_statement_code.Text += "Of the object : " + variable_name_code.Text + "\n\n";
+           
+            return true;
+        }
+
+        return Fail( token_index );
+    }
+
+    // ~~
+
+    function ParseFunctionCallStatement( function_call_statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+        var function_name_code = new CODE();
+        var expression_code = new CODE();
+
+        function_call_statement_code.Text = "";
+
+        if ( ParseIdentifier( function_name_code )
+             && ParseTokenText( "(" )
+             && ParseExpression( expression_code, ")" )
+             && ParseTokenText( ")" )
+             && ParseTokenText( terminator_text ) )
+        {
+            function_call_statement_code.Text = "Call the function : " + function_name_code.Text + "\n";
+            function_call_statement_code.Text += "With the arguments : " + expression_code.Text + "\n\n";
+
+            return true;
+        }
+
+        return Fail( token_index );
+    }
+
+    // ~~
+
+    function ParseMethodCallStatement( method_call_statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+        var variable_name_code = new CODE();
+        var method_name_code = new CODE();
+        var expression_code = new CODE();
+        
+        method_call_statement_code.Text = "";
+
+        if ( ParseIdentifier( variable_name_code )
+             && ParseTokenText( "." )
+             && ParseIdentifier( method_name_code )
+             && ParseTokenText( "(" )
+             && ParseExpression( expression_code, ")" )
+             && ParseTokenText( ")" )
+             && ParseTokenText( terminator_text ) )
+        {
+            if ( variable_name_code.Text == "window"
+                 && method_name_code.Text == "alert" )
+            {
+                method_call_statement_code.Text = "Show to the user : " + expression_code.Text + "\n\n";
+            }
+            else if ( variable_name_code.Text == "document"
+                 && method_name_code.Text == "write" )
+            {
+                method_call_statement_code.Text = "Write in the document : " + expression_code.Text + "\n\n";
+            }
+            else
+            {
+                method_call_statement_code.Text = "Call the function : " + method_name_code.Text + "\n";
+                method_call_statement_code.Text += "Of the object : " + variable_name_code.Text + "\n";
+                method_call_statement_code.Text += "With the arguments : " + expression_code.Text + "\n\n";
+            }
+            
+            return true;
+        }
+
+        return Fail( token_index );
+    }
+
+    // ~~
+
+    function ParseReturnStatement( return_statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+        var expression_code = new CODE();
+        
+        if ( PeekTokenText( "return" ) )
+        {
+            ParseToken();
+            return_statement_code.Text = "";
+
+            if ( ParseExpression( expression_code, terminator_text )
+                 && ParseTokenText( terminator_text ) )
+            {
+                return_statement_code.Text = "Return the value : " + expression_code.Text + "\n\n";
+
+                return true;
+            }
+        }
+        
+        return Fail( token_index );    
+ 
+    }
+
+    // ~~
+
+    function ParseUnknownStatement( unknown_statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+        var expression_code = new CODE();
+
+        unknown_statement_code.Text = "";
+
+        if ( ParseExpression( expression_code )
+             && ParseTokenText( terminator_text ) )
+        {
+            unknown_statement_code.Text = expression_code.Text + "\n\n";
+            
+            return true;
+        }
+
+        return Fail( token_index );
+    }
+
+    // ~~
+
+    function ParseStatement( statement_code, terminator_text )
+    {
+        var token_index = TokenIndex;
+
+        return ( 
+            ParseFunctionDeclarationStatement( statement_code, terminator_text )
+            || ParseIfStatement( statement_code, terminator_text )
+            || ParseWhileStatement( statement_code, terminator_text )
+            || ParseDoStatement( statement_code, terminator_text )
+            || ParseForStatement( statement_code, terminator_text )
+            || ParseBreakStatement( statement_code, terminator_text )
+            || ParseContinueStatement( statement_code, terminator_text )
+            || ParseVariableIncrementationStatement( statement_code, terminator_text )
+            || ParseVariableDecrementationStatement( statement_code, terminator_text )
+            || ParseVariableAssignmentStatement( statement_code, terminator_text )
+            || ParsePropertyAssignmentStatement( statement_code, terminator_text )
+            || ParseFunctionCallStatement( statement_code, terminator_text )
+            || ParseMethodCallStatement( statement_code, terminator_text )
+            || ParseReturnStatement( statement_code, terminator_text )
+            || ParseUnknownStatement( statement_code, terminator_text )
+            );
+    }
+
+    // ~~
+
+    function ParseStatements( statements_code )
+    {
+        var statement_code = new CODE();
+        statements_code.Text = "";
+
+        while ( !PeekTokenText( "}" )
+                && ParseStatement( statement_code, ";" ) )
+        {
+            statements_code.Text += statement_code.Text;
+        }
+        
+        return true;
+    }
+
+    // ~~
+
+    function ParseProgram( program_code )
+    {
+        TokenIndex = 0;
+        
+        return (
+            ParseStatements( program_code )
+            && !HasToken()
+            );
+    }
+
+    // ~~
+
+    function Compile()
+    {
+        MakeTokenTable( document.getElementById( "SourceCode" ).value );
+        
+        var program_code = new CODE();
+        
+        if ( !ParseProgram( program_code ) )
+        {
+            PrintError();
+        }
+        
+        var target_code = program_code.Text;
+        var target_code = target_code.split( "\n                \n            \n").join( "\n            \n" );
+        var target_code = target_code.split( "\n            \n        \n").join( "\n        \n" );
+        var target_code = target_code.split( "\n        \n    \n").join( "\n    \n" );
+        var target_code = target_code.split( "\n    \n\n").join( "\n\n" );
+        
+        document.getElementById( "TargetCode" ).value = target_code;
+    }
+
+    // ~~
+
+    function Test()
+    {
+        document.getElementById( "SourceCode" ).value
+            = "var a = \"hello\" + 'hello';    // comment\n"
+               + "var b = -1 + 2.0;\n"
+               + "\n"
+               + "if ( a == 'hellohello' ) /* Print( '\n"
+               + "Hello // \" */\n"
+               + "{\n"
+               + "    document.write( '\"' + a + \"\\\"\\n\" );\n"
+               + "}\n"
+               + "\n"
+               + "if ( b == 0 )\n"
+               + "{\n"
+               + "    window.alert( 'oops' );\n"
+               + "}\n"
+               + "else if ( b == 1.0 )\n"
+               + "{\n"
+               + "    var x = window.prompt( 'name' );\n"
+               + "}\n"
+               + "else\n"
+               + "{\n"
+               + "    var r = window.confirm( 'bye ?' );\n"
+               + "\n"
+               + "    if ( r )\n"
+               + "    {\n"
+               + "        document.write( 'bye !' );\n"
+               + "    }\n"
+               + "}\n"
+               + "\n"
+               + "for ( var i = 1; i < 10; i++ )\n"
+               + "{\n"
+               + "    a = i + 1;\n"
+               + "}\n"
+               + "\n"
+               + "a = i / 10;\n"
+               + "\n"
+               + "while ( a < 10 )\n"
+               + "{\n"
+               + "    b = a + 1;\n"
+               + "    a += b;\n"
+               + "}\n"
+               + "\n"
+               + "do\n"
+               + "{\n"
+               + "    ++a;\n"
+               + "}\n"
+               + "while ( a < 100 );\n"
+               + "\n"
+               + "for ( var i = 1; i < 20; i++ )\n"
+               + "{\n"
+               + "    for ( var j = 1; j - 1 < i + 1; j++ )\n"
+               + "    {\n"
+               + "        a = i + j;\n"
+               + "        b = i - j;\n"
+               + "\n"
+               + "        if ( i < j )\n"
+               + "        {\n"
+               + "            continue;\n"
+               + "        }\n"
+               + "        else\n"
+               + "        {\n"
+               + "            break;\n"
+               + "        }\n"
+               + "    }\n"
+               + "}\n"
+               + "\n"
+               + "var t = new Array( 'A', 'B', 'C' );\n"
+               + "t += [ 'D', 'E', 'F' ];\n"
+               + "t = [];\n"
+               + "t = new Array();\n"
+               + "\n"
+               + "function Test( a, b, c, d, e )\n"
+               + "{\n"
+               + "    var r = a;\n"
+               + "    r -= b;\n"
+               + "    r *= c;\n"
+               + "    r /= d;\n"
+               + "\n"
+               + "    return ( a + b + c + d + e ) / r;\n"
+               + "}\n"
+               + "\n"
+               + "Test( 1, 2, 3, 4, 5 );\n";
+
+        Compile();
+    }
+    
+    Test();
+</script>
